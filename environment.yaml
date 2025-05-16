@@ -1,0 +1,16 @@
+name: instructor_assignments
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  # Python base
+  - python=3.13
+  - pip
+
+  # Database essentials
+  - sqlalchemy
+  - psycopg2-binary
+  - alembic
+
+  # Testing
+  - pytest

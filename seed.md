@@ -1,0 +1,13 @@
+# Functional requirements
+- key data objects are Event (Class), Event Date Instructor
+- An instructor can be allocated to only one Event / Class date fpr either 4 or 8 hrs
+- when an instructor is allocated to a class, block their time so they cannot be allocated or allocate themselves repetitiavely
+- borrow from the basic concepts of how calendar software works like Outlook
+- instructors are allocated either for the whole class (8 hrs) or 1/2 day (4 hrs)
+- each class has 1 lead instructor per day
+- classes may span multiple days - usually consecutive but can span multiple weeks where needed
+- solution should allow for an import of events or classes and an option to replace the catalog or append
+- solution shall allow an instructor to allocate themselves to one or more classes
+- administrators can allocate any instructor to any class
+- each day of a class shall have a min number of primary and secondary instructors 
+- each even or class shall have a number of students
