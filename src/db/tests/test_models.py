@@ -4,7 +4,7 @@ Run with: pytest src/db/tests/ (database must be started via manage.sh start)
 
 Fixtures (db_engine, db_session) are provided by conftest.py.
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -93,7 +93,7 @@ def test_create_event_date(db_session):
     db_session.add(event)
     db_session.commit()
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     event_date = EventDate(
         event_id=event.id,
         date=now,
@@ -122,7 +122,7 @@ def test_create_allocation(db_session):
     db_session.add_all([event, instructor])
     db_session.commit()
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     event_date = EventDate(
         event_id=event.id,
         date=now,
@@ -160,7 +160,7 @@ def test_allocation_no_double_booking(db_session):
     db_session.add_all([event, instructor])
     db_session.commit()
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     event_date = EventDate(
         event_id=event.id,
         date=now,
@@ -196,7 +196,7 @@ def test_create_availability(db_session):
     db_session.add(instructor)
     db_session.commit()
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     avail = Availability(
         instructor_id=instructor.id,
         start_time=now,

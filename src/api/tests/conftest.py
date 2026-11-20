@@ -15,7 +15,7 @@ from src.api.main import app
 
 TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/instructor_test_db",
+    "postgresql+psycopg2://postgres:postgres@localhost:5432/instructor_test_db",
 )
 
 

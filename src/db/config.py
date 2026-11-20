@@ -5,7 +5,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/instructor_db",
+    "postgresql+psycopg2://postgres:postgres@localhost:5432/instructor_db",
 )
 
 Base = declarative_base()

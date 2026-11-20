@@ -1,5 +1,9 @@
 import enum
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utcnow():
+    return datetime.now(timezone.utc)
 
 from sqlalchemy import (
     Boolean, Column, DateTime, Enum, ForeignKey,
@@ -38,8 +42,8 @@ class Event(Base):
     max_students = Column(Integer, nullable=False)
     location = Column(String, nullable=False)
     catalog_status = Column(Enum(CatalogStatus), nullable=False, default=CatalogStatus.ACTIVE)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 
     event_dates = relationship("EventDate", back_populates="event", cascade="all, delete-orphan")
 
@@ -54,8 +58,8 @@ class EventDate(Base):
     end_time = Column(DateTime, nullable=False)
     lead_instructor_id = Column(Integer, ForeignKey("instructors.id"), nullable=True)
     registered_students = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 
     event = relationship("Event", back_populates="event_dates")
     lead_instructor = relationship("Instructor", foreign_keys=[lead_instructor_id])
@@ -69,8 +73,8 @@ class Instructor(Base):
     name = Column(String, nullable=False)
     email = Column(String, nullable=False, unique=True)
     role = Column(Enum(RoleEnum), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 
     allocations = relationship("Allocation", back_populates="instructor", cascade="all, delete-orphan")
     availabilities = relationship("Availability", back_populates="instructor", cascade="all, delete-orphan")
@@ -88,7 +92,7 @@ class Allocation(Base):
     instructor_id = Column(Integer, ForeignKey("instructors.id"), nullable=False)
     shift_duration = Column(Enum(ShiftDuration), nullable=False)
     role = Column(Enum(RoleEnum), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     event_date = relationship("EventDate", back_populates="allocations")
     instructor = relationship("Instructor", back_populates="allocations")
@@ -102,6 +106,6 @@ class Availability(Base):
     start_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)
     is_available = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     instructor = relationship("Instructor", back_populates="availabilities")
