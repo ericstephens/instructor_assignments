@@ -74,4 +74,29 @@ export const handlers = [
       is_cancelled: true,
     })
   ),
+
+  http.post(`${BASE}/events/import`, () =>
+    HttpResponse.json(
+      [{ id: 10, title: 'Imported Event', duration: 1, min_primary_instructors: 1,
+         min_secondary_instructors: 0, max_students: 20, location: 'Room Z', catalog_status: 'active' }],
+      { status: 201 }
+    )
+  ),
+
+  http.get(`${BASE}/reports/instructor-history`, () =>
+    HttpResponse.json([
+      { allocation_id: 1, event_date_id: 1, event_id: 1, event_title: 'Python 101',
+        date: '2026-04-01T00:00:00', start_time: '2026-04-01T09:00:00',
+        end_time: '2026-04-01T17:00:00', role: 'primary', shift_duration: 8 },
+    ])
+  ),
+
+  http.get(`${BASE}/reports/class-schedule`, () =>
+    HttpResponse.json([
+      { event_date_id: 1, event_id: 1, event_title: 'Python 101', location: 'Room A',
+        date: '2026-04-01T00:00:00', start_time: '2026-04-01T09:00:00',
+        end_time: '2026-04-01T17:00:00', registered_students: 5, lead_assigned: true,
+        allocation_count: 2 },
+    ])
+  ),
 ]
