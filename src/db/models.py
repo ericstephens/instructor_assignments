@@ -14,6 +14,11 @@ from sqlalchemy.orm import relationship
 from .config import Base
 
 
+class UserRole(str, enum.Enum):
+    ADMIN = "admin"
+    INSTRUCTOR = "instructor"
+
+
 class RoleEnum(str, enum.Enum):
     LEAD = "lead"
     PRIMARY = "primary"
@@ -110,3 +115,14 @@ class Availability(Base):
     created_at = Column(DateTime, default=_utcnow)
 
     instructor = relationship("Instructor", back_populates="availabilities")
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True)
+    email = Column(String, nullable=False, unique=True)
+    hashed_password = Column(String, nullable=False)
+    role = Column(Enum(UserRole), nullable=False, default=UserRole.INSTRUCTOR)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=_utcnow)

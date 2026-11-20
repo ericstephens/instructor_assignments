@@ -10,7 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from src.db.config import get_db
-from src.db.models import Allocation, Event, EventDate, RoleEnum
+from src.db.models import Allocation, Event, EventDate, RoleEnum, User
+from ..auth import get_current_user, require_admin
 from ..schemas import (
     EventDateCreate,
     EventDateResponse,
@@ -74,7 +75,7 @@ def update_event_date(event_date_id: int, payload: EventDateUpdate, db: Session 
 
 
 @router.post("/{event_date_id}/cancel", response_model=EventDateResponse)
-def cancel_event_date(event_date_id: int, db: Session = Depends(get_db)):
+def cancel_event_date(event_date_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     """
     Cancel an EventDate. Sets is_cancelled=True and frees all allocations
     (deletes them so instructors' time is unblocked).

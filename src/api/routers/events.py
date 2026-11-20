@@ -12,7 +12,8 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from sqlalchemy.orm import Session
 
 from src.db.config import get_db
-from src.db.models import CatalogStatus, Event
+from src.db.models import CatalogStatus, Event, User
+from ..auth import get_current_user, require_admin
 from ..schemas import EventCreate, EventResponse, EventUpdate, EventWithDatesResponse
 
 router = APIRouter(prefix="/events", tags=["events"])
@@ -45,7 +46,7 @@ def get_event(event_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=EventResponse, status_code=status.HTTP_201_CREATED)
-def create_event(payload: EventCreate, db: Session = Depends(get_db)):
+def create_event(payload: EventCreate, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     event = Event(**payload.model_dump())
     db.add(event)
     db.commit()
@@ -54,7 +55,7 @@ def create_event(payload: EventCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/{event_id}", response_model=EventResponse)
-def update_event(event_id: int, payload: EventUpdate, db: Session = Depends(get_db)):
+def update_event(event_id: int, payload: EventUpdate, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     event = db.query(Event).filter(Event.id == event_id).first()
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -70,6 +71,7 @@ async def import_events(
     mode: str = Form("append"),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
 ):
     """
     Import events from a CSV upload.

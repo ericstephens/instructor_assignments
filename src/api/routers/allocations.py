@@ -15,7 +15,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from src.db.config import get_db
-from src.db.models import Allocation, EventDate, RoleEnum
+from src.db.models import Allocation, EventDate, RoleEnum, User
+from ..auth import get_current_user
 from ..schemas import AllocationCreate, AllocationResponse
 
 router = APIRouter(prefix="/allocations", tags=["allocations"])
@@ -36,7 +37,11 @@ def list_allocations(
 
 
 @router.post("", response_model=AllocationResponse, status_code=status.HTTP_201_CREATED)
-def create_allocation(payload: AllocationCreate, db: Session = Depends(get_db)):
+def create_allocation(
+    payload: AllocationCreate,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
     # Fetch the target EventDate
     target_ed = db.query(EventDate).filter(EventDate.id == payload.event_date_id).first()
     if not target_ed:
@@ -106,7 +111,11 @@ def create_allocation(payload: AllocationCreate, db: Session = Depends(get_db)):
 
 
 @router.delete("/{allocation_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_allocation(allocation_id: int, db: Session = Depends(get_db)):
+def delete_allocation(
+    allocation_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
     alloc = db.query(Allocation).filter(Allocation.id == allocation_id).first()
     if not alloc:
         raise HTTPException(status_code=404, detail="Allocation not found")

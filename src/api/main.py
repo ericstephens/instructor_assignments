@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .routers.allocations import router as allocations_router
+from .routers.auth import router as auth_router
 from .routers.event_dates import router as event_dates_router
 from .routers.events import router as events_router
 from .routers.instructors import router as instructors_router
@@ -32,6 +33,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router)
 app.include_router(events_router)
 app.include_router(event_dates_router)
 app.include_router(instructors_router)
