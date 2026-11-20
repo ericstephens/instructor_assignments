@@ -98,6 +98,10 @@ class EventDateWithAllocationsResponse(EventDateResponse):
     allocations: List["AllocationResponse"] = []
 
 
+class StudentCountUpdate(BaseModel):
+    registered_students: int
+
+
 class StaffingStatusResponse(BaseModel):
     event_date_id: int
     lead_assigned: bool

@@ -20,6 +20,7 @@ from ..schemas import (
     EventDateUpdate,
     EventDateWithAllocationsResponse,
     StaffingStatusResponse,
+    StudentCountUpdate,
 )
 
 router = APIRouter(prefix="/event-dates", tags=["event-dates"])
@@ -138,3 +139,39 @@ def staffing_status(event_date_id: int, db: Session = Depends(get_db)):
         min_secondary_instructors=event.min_secondary_instructors,
         secondary_met=secondary_count >= event.min_secondary_instructors,
     )
+
+
+@router.patch("/{event_date_id}/students", response_model=EventDateResponse)
+def update_student_count(
+    event_date_id: int,
+    payload: StudentCountUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """
+    Update the number of registered students for an EventDate.
+    Enforces max_students capacity from the parent Event.
+    """
+    ed = db.query(EventDate).filter(EventDate.id == event_date_id).first()
+    if not ed:
+        raise HTTPException(status_code=404, detail="EventDate not found")
+    if ed.is_cancelled:
+        raise HTTPException(status_code=409, detail="Cannot update students on a cancelled EventDate")
+
+    if payload.registered_students < 0:
+        raise HTTPException(status_code=422, detail="registered_students cannot be negative")
+
+    event = db.query(Event).filter(Event.id == ed.event_id).first()
+    if payload.registered_students > event.max_students:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"registered_students ({payload.registered_students}) exceeds "
+                f"max_students ({event.max_students}) for this event."
+            ),
+        )
+
+    ed.registered_students = payload.registered_students
+    db.commit()
+    db.refresh(ed)
+    return ed
