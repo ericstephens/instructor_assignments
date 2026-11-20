@@ -58,6 +58,7 @@ class EventDate(Base):
     end_time = Column(DateTime, nullable=False)
     lead_instructor_id = Column(Integer, ForeignKey("instructors.id"), nullable=True)
     registered_students = Column(Integer, default=0)
+    is_cancelled = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=_utcnow)
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 

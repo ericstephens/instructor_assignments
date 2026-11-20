@@ -68,6 +68,7 @@ class EventDateCreate(BaseModel):
     end_time: datetime
     lead_instructor_id: Optional[int] = None
     registered_students: int = 0
+    is_cancelled: bool = False
 
 
 class EventDateUpdate(BaseModel):
@@ -88,6 +89,7 @@ class EventDateResponse(BaseModel):
     end_time: datetime
     lead_instructor_id: Optional[int]
     registered_students: int
+    is_cancelled: bool
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
 

@@ -73,6 +73,26 @@ def update_event_date(event_date_id: int, payload: EventDateUpdate, db: Session 
     return ed
 
 
+@router.post("/{event_date_id}/cancel", response_model=EventDateResponse)
+def cancel_event_date(event_date_id: int, db: Session = Depends(get_db)):
+    """
+    Cancel an EventDate. Sets is_cancelled=True and frees all allocations
+    (deletes them so instructors' time is unblocked).
+    """
+    ed = db.query(EventDate).filter(EventDate.id == event_date_id).first()
+    if not ed:
+        raise HTTPException(status_code=404, detail="EventDate not found")
+    if ed.is_cancelled:
+        raise HTTPException(status_code=409, detail="EventDate is already cancelled")
+
+    # Free all allocations so instructors are unblocked
+    db.query(Allocation).filter(Allocation.event_date_id == event_date_id).delete()
+    ed.is_cancelled = True
+    db.commit()
+    db.refresh(ed)
+    return ed
+
+
 @router.get("/{event_date_id}/staffing-status", response_model=StaffingStatusResponse)
 def staffing_status(event_date_id: int, db: Session = Depends(get_db)):
     ed = db.query(EventDate).filter(EventDate.id == event_date_id).first()

@@ -41,6 +41,8 @@ def create_allocation(payload: AllocationCreate, db: Session = Depends(get_db)):
     target_ed = db.query(EventDate).filter(EventDate.id == payload.event_date_id).first()
     if not target_ed:
         raise HTTPException(status_code=404, detail="EventDate not found")
+    if target_ed.is_cancelled:
+        raise HTTPException(status_code=409, detail="Cannot allocate to a cancelled EventDate")
 
     # Rule 1: No double-booking — check if instructor has any allocation on an
     # EventDate whose time window overlaps target_ed's window.

@@ -801,3 +801,104 @@ def test_report_class_schedule(client):
     assert match is not None
     assert match["event_title"] == "Schedule Event"
     assert match["location"] == "Schedule Room"
+
+
+# ---------------------------------------------------------------------------
+# Cancel EventDate
+# ---------------------------------------------------------------------------
+
+def _make_event_date(client, title="Cancel Test Event", location="Room X"):
+    event_r = client.post("/events", json={
+        "title": title,
+        "duration": 1,
+        "min_primary_instructors": 1,
+        "min_secondary_instructors": 0,
+        "max_students": 20,
+        "location": location,
+    })
+    event_id = event_r.json()["id"]
+    ed_r = client.post("/event-dates", json={
+        "event_id": event_id,
+        "date": "2027-01-10T00:00:00",
+        "start_time": "2027-01-10T09:00:00",
+        "end_time": "2027-01-10T17:00:00",
+    })
+    return event_id, ed_r.json()["id"]
+
+
+def test_cancel_event_date(client):
+    _, ed_id = _make_event_date(client)
+    r = client.post(f"/event-dates/{ed_id}/cancel")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["is_cancelled"] is True
+    assert data["id"] == ed_id
+
+
+def test_cancel_event_date_not_found(client):
+    r = client.post("/event-dates/999999/cancel")
+    assert r.status_code == 404
+
+
+def test_cancel_event_date_already_cancelled(client):
+    _, ed_id = _make_event_date(client)
+    client.post(f"/event-dates/{ed_id}/cancel")
+    r = client.post(f"/event-dates/{ed_id}/cancel")
+    assert r.status_code == 409
+
+
+def test_cancel_frees_allocations(client):
+    """Cancelling an event date removes all its allocations."""
+    _, ed_id = _make_event_date(client)
+    inst_r = client.post("/instructors", json={
+        "name": "Cancel Inst",
+        "email": "cancel_inst@example.com",
+        "role": "primary",
+    })
+    inst_id = inst_r.json()["id"]
+    alloc_r = client.post("/allocations", json={
+        "event_date_id": ed_id,
+        "instructor_id": inst_id,
+        "shift_duration": 8,
+        "role": "primary",
+    })
+    assert alloc_r.status_code == 201
+    alloc_id = alloc_r.json()["id"]
+
+    client.post(f"/event-dates/{ed_id}/cancel")
+
+    # Allocation should be gone
+    list_r = client.get(f"/allocations?event_date_id={ed_id}")
+    ids = [a["id"] for a in list_r.json()]
+    assert alloc_id not in ids
+
+
+def test_allocate_to_cancelled_event_date(client):
+    """POST /allocations must 409 if EventDate is cancelled."""
+    _, ed_id = _make_event_date(client)
+    inst_r = client.post("/instructors", json={
+        "name": "Blocked Inst",
+        "email": "blocked_inst@example.com",
+        "role": "primary",
+    })
+    inst_id = inst_r.json()["id"]
+
+    client.post(f"/event-dates/{ed_id}/cancel")
+
+    r = client.post("/allocations", json={
+        "event_date_id": ed_id,
+        "instructor_id": inst_id,
+        "shift_duration": 8,
+        "role": "primary",
+    })
+    assert r.status_code == 409
+    assert "cancelled" in r.json()["detail"].lower()
+
+
+def test_event_date_response_has_is_cancelled(client):
+    """EventDate responses include is_cancelled field."""
+    _, ed_id = _make_event_date(client)
+    r = client.get(f"/event-dates/{ed_id}")
+    assert r.status_code == 200
+    assert "is_cancelled" in r.json()
+    assert r.json()["is_cancelled"] is False
