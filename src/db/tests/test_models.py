@@ -1,15 +1,13 @@
 """
 DB model integration tests — require a live PostgreSQL instance.
 Run with: pytest src/db/tests/ (database must be started via manage.sh start)
+
+Fixtures (db_engine, db_session) are provided by conftest.py.
 """
-import os
 from datetime import datetime, timedelta
 
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
-from ..config import Base
 from ..models import (
     Allocation,
     Availability,
@@ -20,29 +18,6 @@ from ..models import (
     RoleEnum,
     ShiftDuration,
 )
-
-TEST_DATABASE_URL = os.getenv(
-    "TEST_DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/instructor_test_db",
-)
-
-
-@pytest.fixture(scope="module")
-def db_engine():
-    engine = create_engine(TEST_DATABASE_URL)
-    Base.metadata.create_all(engine)
-    yield engine
-    Base.metadata.drop_all(engine)
-    engine.dispose()
-
-
-@pytest.fixture(scope="function")
-def db_session(db_engine):
-    Session = sessionmaker(bind=db_engine)
-    session = Session()
-    yield session
-    session.rollback()
-    session.close()
 
 
 # --- Event ---
