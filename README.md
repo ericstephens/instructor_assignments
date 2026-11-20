@@ -9,6 +9,7 @@ A web application for managing instructor allocations to events and classes. Ins
 ## AWS Architecture
 
 ```mermaid
+%%{init: {'theme': 'dark'}}%%
 graph TD
     subgraph Client["Client"]
         Browser([Browser])
