@@ -293,9 +293,39 @@ Defaults live in `localENV` and `src/api/requirements.txt`. Override via `TF_VAR
 **Chosen:** RDS PostgreSQL 16  
 **Why:** The data model is inherently relational (events → event_dates → allocations with FK constraints and uniqueness rules). PostgreSQL's `UniqueConstraint` enforces double-booking prevention at the DB level, and SQLAlchemy's ORM maps cleanly to it.  
 **Alternatives:**
-- **Aurora PostgreSQL** — wire-compatible with PostgreSQL; higher cost; better fit for high-availability multi-region deployments
+- **Aurora PostgreSQL** — wire-compatible with PostgreSQL; higher cost; better fit for high-availability multi-region deployments (see detailed comparison below)
 - **DynamoDB** — no joins, no transactions across items; would require significant denormalization for the allocation model
 - **SQLite** — zero-config for local dev; not production-grade; abandoned early in favour of real PostgreSQL for all environments (see testing decision below)
+
+#### RDS PostgreSQL vs Aurora PostgreSQL — detailed comparison
+
+**Cost** (`db.t3.micro`, 20 GB storage, us-east-1 on-demand)
+
+| | RDS PostgreSQL | Aurora PostgreSQL |
+|-|---------------|------------------|
+| Compute | `db.t3.micro` ~$0.018/hr (~$13/mo) | Minimum `db.t3.medium` ~$0.073/hr (~$53/mo) — no Micro option |
+| Storage | $0.115/GB-month (gp2) | $0.10/GB-month |
+| I/O | Included | **$0.20 per million requests** — adds up on write-heavy workloads |
+| Multi-AZ | 2× instance cost (opt-in) | Built-in 6-way replication across 3 AZs |
+| Estimated total | **~$15/mo** | **~$55–80/mo** |
+
+Aurora costs roughly 4–6× more at small scale. The per-I/O charge makes it particularly punishing for workloads with many small writes (e.g., frequent allocation events).
+
+**Where Aurora wins**
+- **Availability**: Automatic failover in ~30 seconds vs. 1–2 minutes for RDS Multi-AZ; six-way replication by default
+- **Read replicas**: Up to 15 with single-digit millisecond replication lag vs. 5 for RDS with higher lag
+- **Aurora Serverless v2**: Scales in 0.5 ACU increments toward near-zero when idle — better cost profile for intermittent traffic than a fixed instance
+- **Global Database**: Cross-region active-active replication with <1 s RPO/RTO; no RDS equivalent
+- **Zero-downtime minor upgrades** via blue/green deployment
+
+**Where RDS PostgreSQL wins**
+- **Engine fidelity**: 100% stock PostgreSQL — no Aurora-specific vacuum behavior, sequence caching differences, or extension restrictions
+- **Extension support**: Full `pg_extension` ecosystem; Aurora patches or restricts some extensions
+- **Operational simplicity**: No cluster vs. reader endpoint distinction, no ACU tuning
+- **Emulator compatibility**: The AWS Emulator models `aws_db_instance`; Aurora clusters (`aws_rds_cluster`) would require reworking both the Terraform and emulator behavior
+- **Minimum viable instance**: `db.t3.micro` is sufficient; Aurora has no micro-class option
+
+**Verdict**: RDS PostgreSQL is the right call for this workload. User counts are bounded, write volume is low, and the availability requirements don't justify Aurora's cost floor. Aurora Serverless v2 would be worth revisiting if the system grew to hundreds of concurrent users or required cross-region failover.
 
 ---
 
