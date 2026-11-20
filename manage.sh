@@ -103,13 +103,13 @@ function emulator_login {
 function infra_init {
     source "$PROJECT_ROOT/localENV"
     cd "$TF_DIR"
-    terraform init
+    tofu init
 }
 
 function infra_up {
     source "$PROJECT_ROOT/localENV"
     cd "$TF_DIR"
-    terraform apply -auto-approve \
+    tofu apply -auto-approve \
         -var="db_password=${TF_VAR_db_password:-instructor_pass_local}" \
         -var="jwt_secret_key=${TF_VAR_jwt_secret_key:-change-me-in-production}"
 }
@@ -117,19 +117,19 @@ function infra_up {
 function infra_down {
     source "$PROJECT_ROOT/localENV"
     cd "$TF_DIR"
-    terraform destroy -auto-approve
+    tofu destroy -auto-approve
 }
 
 function infra_status {
     source "$PROJECT_ROOT/localENV"
     cd "$TF_DIR"
-    terraform show
+    tofu show
 }
 
 function infra_output {
     source "$PROJECT_ROOT/localENV"
     cd "$TF_DIR"
-    terraform output
+    tofu output
 }
 
 # --- DB URL helpers ---
@@ -137,13 +137,13 @@ function infra_output {
 function get_rds_db_url {
     source "$PROJECT_ROOT/localENV" 2>/dev/null
     cd "$TF_DIR"
-    terraform output -raw database_url 2>/dev/null
+    tofu output -raw database_url 2>/dev/null
 }
 
 function get_rds_test_url {
     source "$PROJECT_ROOT/localENV" 2>/dev/null
     cd "$TF_DIR"
-    terraform output -raw test_database_url 2>/dev/null
+    tofu output -raw test_database_url 2>/dev/null
 }
 
 # --- DB functions ---
@@ -151,7 +151,7 @@ function get_rds_test_url {
 function db_migrate {
     DB_URL=$(get_rds_db_url)
     if [ -z "$DB_URL" ]; then
-        echo -e "${RED}Could not get DB URL from terraform output. Run infra:up first.${NC}"
+        echo -e "${RED}Could not get DB URL from tofu output. Run infra:up first.${NC}"
         exit 1
     fi
     echo -e "${YELLOW}Running Alembic migrations against RDS...${NC}"
@@ -164,8 +164,8 @@ function db_migrate {
 function db_init {
     source "$PROJECT_ROOT/localENV" 2>/dev/null
     cd "$TF_DIR"
-    RDS_HOST=$(terraform output -raw rds_host 2>/dev/null)
-    RDS_PORT=$(terraform output -raw rds_port 2>/dev/null)
+    RDS_HOST=$(tofu output -raw rds_host 2>/dev/null)
+    RDS_PORT=$(tofu output -raw rds_port 2>/dev/null)
     DB_PASS="${TF_VAR_db_password:-instructor_pass_local}"
     echo -e "${YELLOW}Creating instructor_test_db on RDS...${NC}"
     PGPASSWORD="$DB_PASS" psql -h "$RDS_HOST" -p "$RDS_PORT" -U postgres \
@@ -186,7 +186,7 @@ function api_build {
 function api_push {
     source "$PROJECT_ROOT/localENV"
     cd "$TF_DIR"
-    ECR_URL=$(terraform output -raw ecr_repository_url 2>/dev/null)
+    ECR_URL=$(tofu output -raw ecr_repository_url 2>/dev/null)
     if [ -z "$ECR_URL" ]; then
         echo -e "${RED}ECR URL not found. Run infra:up first.${NC}"; exit 1
     fi
@@ -299,8 +299,8 @@ function fe_build {
 function fe_deploy {
     source "$PROJECT_ROOT/localENV"
     cd "$TF_DIR"
-    BUCKET=$(terraform output -raw frontend_bucket 2>/dev/null)
-    CF_ID=$(terraform output -raw cloudfront_distribution_id 2>/dev/null)
+    BUCKET=$(tofu output -raw frontend_bucket 2>/dev/null)
+    CF_ID=$(tofu output -raw cloudfront_distribution_id 2>/dev/null)
     if [ -z "$BUCKET" ]; then
         echo -e "${RED}Frontend bucket not found. Run infra:up first.${NC}"; exit 1
     fi
