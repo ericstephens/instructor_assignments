@@ -13,6 +13,7 @@ export const handlers = [
         end_time: '2026-04-01T17:00:00',
         lead_instructor_id: null,
         registered_students: 5,
+        is_cancelled: false,
       },
     ])
   ),
@@ -59,5 +60,18 @@ export const handlers = [
       { id: 99, event_date_id: 1, instructor_id: 2, shift_duration: 8, role: 'primary' },
       { status: 201 }
     )
+  ),
+
+  http.post(`${BASE}/event-dates/:id/cancel`, ({ params }) =>
+    HttpResponse.json({
+      id: Number(params.id),
+      event_id: 1,
+      date: '2026-04-01T00:00:00',
+      start_time: '2026-04-01T09:00:00',
+      end_time: '2026-04-01T17:00:00',
+      lead_instructor_id: null,
+      registered_students: 0,
+      is_cancelled: true,
+    })
   ),
 ]

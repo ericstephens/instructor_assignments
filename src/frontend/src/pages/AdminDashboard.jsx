@@ -7,22 +7,19 @@ import Calendar from '../components/Calendar.jsx'
 export default function AdminDashboard() {
   const [calendarKey, setCalendarKey] = useState(0)
 
-  const handleAllocationSuccess = () => {
-    // bump key to re-fetch calendar events
-    setCalendarKey(k => k + 1)
-  }
+  const refresh = () => setCalendarKey(k => k + 1)
 
   return (
     <div>
       <h2>Admin Dashboard</h2>
-      <Calendar key={calendarKey} />
+      <Calendar key={calendarKey} adminMode={true} onCancelled={refresh} />
       <div className="two-col">
         <div>
           <EventList />
           <InstructorList />
         </div>
         <div>
-          <AllocationForm onSuccess={handleAllocationSuccess} />
+          <AllocationForm onSuccess={refresh} />
         </div>
       </div>
     </div>

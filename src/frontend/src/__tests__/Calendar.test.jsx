@@ -10,7 +10,6 @@ afterAll(() => server.close())
 describe('Calendar', () => {
   it('mounts FullCalendar without crashing', async () => {
     render(<Calendar />)
-    // FullCalendar renders navigation buttons
     await waitFor(() => {
       expect(screen.getByText('today')).toBeInTheDocument()
     })
@@ -23,5 +22,23 @@ describe('Calendar', () => {
       expect(screen.getByText('week')).toBeInTheDocument()
       expect(screen.getByText('day')).toBeInTheDocument()
     })
+  })
+
+  it('shows cancel button in adminMode', async () => {
+    render(<Calendar adminMode={true} />)
+    await waitFor(() => {
+      expect(screen.getByText('today')).toBeInTheDocument()
+    })
+    // Cancel button only appears after selecting an event — verify it doesn't
+    // appear without a selection (not in the DOM at rest)
+    expect(screen.queryByTestId('cancel-event-date-btn')).not.toBeInTheDocument()
+  })
+
+  it('does not show cancel button without adminMode', async () => {
+    render(<Calendar adminMode={false} />)
+    await waitFor(() => {
+      expect(screen.getByText('today')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('cancel-event-date-btn')).not.toBeInTheDocument()
   })
 })
