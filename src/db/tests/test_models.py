@@ -1,65 +1,233 @@
+"""
+DB model integration tests — require a live PostgreSQL instance.
+Run with: pytest src/db/tests/ (database must be started via manage.sh start)
+"""
+import os
+from datetime import datetime, timedelta
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from datetime import datetime, timedelta
 
 from ..config import Base
-from ..models import Event, EventDate, Instructor, Allocation, Availability, RoleEnum
+from ..models import (
+    Allocation,
+    Availability,
+    CatalogStatus,
+    Event,
+    EventDate,
+    Instructor,
+    RoleEnum,
+    ShiftDuration,
+)
+
+TEST_DATABASE_URL = os.getenv(
+    "TEST_DATABASE_URL",
+    "postgresql://postgres:postgres@localhost:5432/instructor_test_db",
+)
+
 
 @pytest.fixture(scope="module")
-def test_db():
-    engine = create_engine("sqlite:///:memory:")
+def db_engine():
+    engine = create_engine(TEST_DATABASE_URL)
     Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
+    yield engine
+    Base.metadata.drop_all(engine)
+    engine.dispose()
+
+
+@pytest.fixture(scope="function")
+def db_session(db_engine):
+    Session = sessionmaker(bind=db_engine)
     session = Session()
     yield session
+    session.rollback()
     session.close()
-    Base.metadata.drop_all(engine)
 
-def test_create_event(test_db):
+
+# --- Event ---
+
+def test_create_event(db_session):
     event = Event(
-        title="Test Event",
-        description="A test event",
-        duration=1,
+        title="Python Fundamentals",
+        description="Intro to Python",
+        duration=2,
         min_primary_instructors=1,
         min_secondary_instructors=1,
         max_students=20,
         location="Virtual",
-        catalog_status="active"
+        catalog_status=CatalogStatus.ACTIVE,
     )
-    test_db.add(event)
-    test_db.commit()
+    db_session.add(event)
+    db_session.commit()
     assert event.id is not None
+    assert event.catalog_status == CatalogStatus.ACTIVE
 
-def test_create_instructor(test_db):
-    instructor = Instructor(
-        name="Test Instructor",
-        email="test@example.com",
-        role=RoleEnum.PRIMARY
+
+def test_event_archived_status(db_session):
+    event = Event(
+        title="Legacy Course",
+        duration=1,
+        min_primary_instructors=1,
+        min_secondary_instructors=0,
+        max_students=10,
+        location="Room A",
+        catalog_status=CatalogStatus.ARCHIVED,
     )
-    test_db.add(instructor)
-    test_db.commit()
+    db_session.add(event)
+    db_session.commit()
+    assert event.catalog_status == CatalogStatus.ARCHIVED
+
+
+# --- Instructor ---
+
+def test_create_instructor(db_session):
+    instructor = Instructor(
+        name="Jane Smith",
+        email="jane.smith@example.com",
+        role=RoleEnum.PRIMARY,
+    )
+    db_session.add(instructor)
+    db_session.commit()
     assert instructor.id is not None
 
-def test_create_event_date(test_db):
+
+def test_instructor_email_unique(db_session):
+    from sqlalchemy.exc import IntegrityError
+
+    db_session.add(Instructor(name="A", email="dupe@example.com", role=RoleEnum.PRIMARY))
+    db_session.commit()
+    db_session.add(Instructor(name="B", email="dupe@example.com", role=RoleEnum.SECONDARY))
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
+
+
+# --- EventDate ---
+
+def test_create_event_date(db_session):
     event = Event(
-        title="Test Event",
+        title="Advanced Python",
         duration=1,
         min_primary_instructors=1,
         min_secondary_instructors=1,
-        max_students=20,
+        max_students=15,
         location="Virtual",
-        catalog_status="active"
+        catalog_status=CatalogStatus.ACTIVE,
     )
-    test_db.add(event)
-    test_db.commit()
+    db_session.add(event)
+    db_session.commit()
 
+    now = datetime.utcnow()
     event_date = EventDate(
         event_id=event.id,
-        date=datetime.now(),
-        start_time=datetime.now(),
-        end_time=datetime.now() + timedelta(hours=8)
+        date=now,
+        start_time=now,
+        end_time=now + timedelta(hours=8),
     )
-    test_db.add(event_date)
-    test_db.commit()
+    db_session.add(event_date)
+    db_session.commit()
     assert event_date.id is not None
+    assert event_date.lead_instructor_id is None
+
+
+# --- Allocation ---
+
+def test_create_allocation(db_session):
+    event = Event(
+        title="Data Science",
+        duration=1,
+        min_primary_instructors=1,
+        min_secondary_instructors=0,
+        max_students=25,
+        location="Room B",
+        catalog_status=CatalogStatus.ACTIVE,
+    )
+    instructor = Instructor(name="Bob Lee", email="bob.lee@example.com", role=RoleEnum.PRIMARY)
+    db_session.add_all([event, instructor])
+    db_session.commit()
+
+    now = datetime.utcnow()
+    event_date = EventDate(
+        event_id=event.id,
+        date=now,
+        start_time=now,
+        end_time=now + timedelta(hours=8),
+    )
+    db_session.add(event_date)
+    db_session.commit()
+
+    allocation = Allocation(
+        event_date_id=event_date.id,
+        instructor_id=instructor.id,
+        shift_duration=ShiftDuration.FULL_DAY,
+        role=RoleEnum.PRIMARY,
+    )
+    db_session.add(allocation)
+    db_session.commit()
+    assert allocation.id is not None
+
+
+def test_allocation_no_double_booking(db_session):
+    """Same instructor cannot be allocated to same event_date twice."""
+    from sqlalchemy.exc import IntegrityError
+
+    event = Event(
+        title="No Double Book",
+        duration=1,
+        min_primary_instructors=1,
+        min_secondary_instructors=0,
+        max_students=10,
+        location="Virtual",
+        catalog_status=CatalogStatus.ACTIVE,
+    )
+    instructor = Instructor(name="Carol Day", email="carol.day@example.com", role=RoleEnum.PRIMARY)
+    db_session.add_all([event, instructor])
+    db_session.commit()
+
+    now = datetime.utcnow()
+    event_date = EventDate(
+        event_id=event.id,
+        date=now,
+        start_time=now,
+        end_time=now + timedelta(hours=8),
+    )
+    db_session.add(event_date)
+    db_session.commit()
+
+    db_session.add(Allocation(
+        event_date_id=event_date.id,
+        instructor_id=instructor.id,
+        shift_duration=ShiftDuration.FULL_DAY,
+        role=RoleEnum.PRIMARY,
+    ))
+    db_session.commit()
+
+    db_session.add(Allocation(
+        event_date_id=event_date.id,
+        instructor_id=instructor.id,
+        shift_duration=ShiftDuration.HALF_DAY,
+        role=RoleEnum.SECONDARY,
+    ))
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
+
+
+# --- Availability ---
+
+def test_create_availability(db_session):
+    instructor = Instructor(name="Eve Torres", email="eve.torres@example.com", role=RoleEnum.SECONDARY)
+    db_session.add(instructor)
+    db_session.commit()
+
+    now = datetime.utcnow()
+    avail = Availability(
+        instructor_id=instructor.id,
+        start_time=now,
+        end_time=now + timedelta(hours=8),
+        is_available=True,
+    )
+    db_session.add(avail)
+    db_session.commit()
+    assert avail.id is not None
