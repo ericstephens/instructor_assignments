@@ -78,14 +78,14 @@ graph TD
 
 ## Prerequisites
 
-| Tool | Version |
-|------|---------|
-| podman | ≥ 4.x |
+| Tool           | Version         |
+| -------------- | --------------- |
+| podman         | ≥ 4.x           |
 | podman machine | running (macOS) |
-| conda / mamba | any |
-| OpenTofu | ≥ 1.6 (`tofu`) |
-| AWS CLI v2 | ≥ 2.40 |
-| Node.js | ≥ 18 |
+| conda / mamba  | any             |
+| OpenTofu       | ≥ 1.6 (`tofu`)  |
+| AWS CLI v2     | ≥ 2.40          |
+| Node.js        | ≥ 18            |
 
 ---
 
@@ -147,56 +147,56 @@ source localENV && aws login
 ## manage.sh reference
 
 ### Emulator
-| Command | Description |
-|---------|-------------|
-| `emulator:build` | Build the `aws-emulator` container image |
-| `emulator:start` | Start postgres sidecar (`:5433`) + AWS emulator (`:9297`) |
-| `emulator:stop` | Stop and remove both containers |
-| `emulator:status` | Show running container status |
-| `emulator:login` | Run `aws login` against the emulator |
+| Command           | Description                                               |
+| ----------------- | --------------------------------------------------------- |
+| `emulator:build`  | Build the `aws-emulator` container image                  |
+| `emulator:start`  | Start postgres sidecar (`:5433`) + AWS emulator (`:9297`) |
+| `emulator:stop`   | Stop and remove both containers                           |
+| `emulator:status` | Show running container status                             |
+| `emulator:login`  | Run `aws login` against the emulator                      |
 
 ### Infrastructure (OpenTofu)
-| Command | Description |
-|---------|-------------|
-| `infra:init` | `tofu init` |
-| `infra:up` | `tofu apply -auto-approve` — provisions 31 resources |
-| `infra:down` | `tofu destroy -auto-approve` |
-| `infra:status` | `tofu show` |
-| `infra:output` | Print all outputs (ALB URL, CloudFront, ECR, etc.) |
+| Command        | Description                                          |
+| -------------- | ---------------------------------------------------- |
+| `infra:init`   | `tofu init`                                          |
+| `infra:up`     | `tofu apply -auto-approve` — provisions 31 resources |
+| `infra:down`   | `tofu destroy -auto-approve`                         |
+| `infra:status` | `tofu show`                                          |
+| `infra:output` | Print all outputs (ALB URL, CloudFront, ECR, etc.)   |
 
 ### Database
-| Command | Description |
-|---------|-------------|
-| `db:init` | Create `instructor_test_db` on the postgres sidecar |
+| Command      | Description                                                 |
+| ------------ | ----------------------------------------------------------- |
+| `db:init`    | Create `instructor_test_db` on the postgres sidecar         |
 | `db:migrate` | Run Alembic migrations (`001` initial schema → `003` users) |
 
 ### API
-| Command | Description |
-|---------|-------------|
-| `api:build` | Build `instructor-api:latest` Docker image |
-| `api:push` | Push image to ECR (requires `infra:up`) |
-| `api:start` | Start FastAPI dev server on `:8000` (background) |
-| `api:stop` | Stop the dev server |
-| `api:restart` | Restart the dev server |
-| `api:logs` | Tail API log |
-| `api:test` | Run pytest suite (77 tests) |
+| Command       | Description                                      |
+| ------------- | ------------------------------------------------ |
+| `api:build`   | Build `instructor-api:latest` Docker image       |
+| `api:push`    | Push image to ECR (requires `infra:up`)          |
+| `api:start`   | Start FastAPI dev server on `:8000` (background) |
+| `api:stop`    | Stop the dev server                              |
+| `api:restart` | Restart the dev server                           |
+| `api:logs`    | Tail API log                                     |
+| `api:test`    | Run pytest suite (77 tests)                      |
 
 ### Frontend
-| Command | Description |
-|---------|-------------|
-| `fe:start` | Start Vite dev server on `:5173` (background) |
-| `fe:stop` | Stop the dev server |
-| `fe:build` | Production build to `src/frontend/dist/` |
+| Command     | Description                                     |
+| ----------- | ----------------------------------------------- |
+| `fe:start`  | Start Vite dev server on `:5173` (background)   |
+| `fe:stop`   | Stop the dev server                             |
+| `fe:build`  | Production build to `src/frontend/dist/`        |
 | `fe:deploy` | Build + `aws s3 sync` + CloudFront invalidation |
-| `fe:test` | Run Vitest suite |
+| `fe:test`   | Run Vitest suite                                |
 
 ### Stack shortcuts
-| Command | Description |
-|---------|-------------|
-| `start` | Full stack: emulator → infra → migrate → api → frontend |
-| `stop` | Reverse teardown |
-| `status` | Status of all components |
-| `test` | All test suites |
+| Command  | Description                                             |
+| -------- | ------------------------------------------------------- |
+| `start`  | Full stack: emulator → infra → migrate → api → frontend |
+| `stop`   | Reverse teardown                                        |
+| `status` | Status of all components                                |
+| `test`   | All test suites                                         |
 
 ---
 
@@ -204,15 +204,15 @@ source localENV && aws login
 
 Defaults live in `localENV` and `src/api/requirements.txt`. Override via `TF_VAR_*` for Terraform or env vars for the API:
 
-| Variable | Default | Used by |
-|----------|---------|---------|
-| `DATABASE_URL` | `postgresql+psycopg2://postgres:instructor_pass_local@127.0.0.1:5433/instructor_db` | API, Alembic |
-| `TEST_DATABASE_URL` | same host, `instructor_test_db` | pytest |
-| `JWT_SECRET_KEY` | `dev-jwt-secret-change-in-prod` | API auth |
-| `CORS_ORIGINS` | `http://localhost:5173,http://localhost:3000` | FastAPI CORS |
-| `NOTIFY_BACKEND` | `log` | notifications (`log` \| `smtp` \| `ses`) |
-| `NOTIFY_FROM_EMAIL` | `noreply@instructor-system.local` | SES / SMTP |
-| `AWS_ENDPOINT_URL` | `https://127.0.0.1:9297` | AWS SDK + OpenTofu |
+| Variable            | Default                                                                             | Used by                                  |
+| ------------------- | ----------------------------------------------------------------------------------- | ---------------------------------------- |
+| `DATABASE_URL`      | `postgresql+psycopg2://postgres:instructor_pass_local@127.0.0.1:5433/instructor_db` | API, Alembic                             |
+| `TEST_DATABASE_URL` | same host, `instructor_test_db`                                                     | pytest                                   |
+| `JWT_SECRET_KEY`    | `dev-jwt-secret-change-in-prod`                                                     | API auth                                 |
+| `CORS_ORIGINS`      | `http://localhost:5173,http://localhost:3000`                                       | FastAPI CORS                             |
+| `NOTIFY_BACKEND`    | `log`                                                                               | notifications (`log` \| `smtp` \| `ses`) |
+| `NOTIFY_FROM_EMAIL` | `noreply@instructor-system.local`                                                   | SES / SMTP                               |
+| `AWS_ENDPOINT_URL`  | `https://127.0.0.1:9297`                                                            | AWS SDK + OpenTofu                       |
 
 ---
 
@@ -301,13 +301,13 @@ Defaults live in `localENV` and `src/api/requirements.txt`. Override via `TF_VAR
 
 **Cost** (`db.t3.micro`, 20 GB storage, us-east-1 on-demand)
 
-| | RDS PostgreSQL | Aurora PostgreSQL |
-|-|---------------|------------------|
-| Compute | `db.t3.micro` ~$0.018/hr (~$13/mo) | Minimum `db.t3.medium` ~$0.073/hr (~$53/mo) — no Micro option |
-| Storage | $0.115/GB-month (gp2) | $0.10/GB-month |
-| I/O | Included | **$0.20 per million requests** — adds up on write-heavy workloads |
-| Multi-AZ | 2× instance cost (opt-in) | Built-in 6-way replication across 3 AZs |
-| Estimated total | **~$15/mo** | **~$55–80/mo** |
+|                 | RDS PostgreSQL                     | Aurora PostgreSQL                                                 |
+| --------------- | ---------------------------------- | ----------------------------------------------------------------- |
+| Compute         | `db.t3.micro` \~\$0.018/hr (~$13/mo) | Minimum `db.t3.medium` \~\$0.073/hr (~$53/mo) — no Micro option     |
+| Storage         | $0.115/GB-month (gp2)              | $0.10/GB-month                                                    |
+| I/O             | Included                           | **$0.20 per million requests** — adds up on write-heavy workloads |
+| Multi-AZ        | 2× instance cost (opt-in)          | Built-in 6-way replication across 3 AZs                           |
+| Estimated total | **~$15/mo**                        | **~$55–80/mo**                                                    |
 
 Aurora costs roughly 4–6× more at small scale. The per-I/O charge makes it particularly punishing for workloads with many small writes (e.g., frequent allocation events).
 
