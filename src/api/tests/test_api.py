@@ -3,6 +3,8 @@ API integration tests — real PostgreSQL, no mocking.
 """
 from __future__ import annotations
 
+import io
+
 import pytest
 
 
@@ -315,3 +317,487 @@ def test_staffing_status(client):
     assert data["secondary_count"] == 0
     assert data["min_secondary_instructors"] == 1
     assert data["secondary_met"] is False
+
+
+# ---------------------------------------------------------------------------
+# Events — additional tests
+# ---------------------------------------------------------------------------
+
+def test_update_event(client):
+    create_r = client.post("/events", json={
+        "title": "Original Title",
+        "duration": 1,
+        "min_primary_instructors": 1,
+        "min_secondary_instructors": 0,
+        "max_students": 10,
+        "location": "Room A",
+    })
+    assert create_r.status_code == 201
+    event_id = create_r.json()["id"]
+
+    r = client.put(f"/events/{event_id}", json={
+        "title": "Updated Title",
+        "location": "Room Z",
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["title"] == "Updated Title"
+    assert data["location"] == "Room Z"
+
+
+def test_update_event_not_found(client):
+    r = client.put("/events/999999", json={"title": "Ghost"})
+    assert r.status_code == 404
+
+
+def test_list_events_filter_by_status(client):
+    client.post("/events", json={
+        "title": "Active Event",
+        "duration": 1,
+        "min_primary_instructors": 1,
+        "min_secondary_instructors": 0,
+        "max_students": 10,
+        "location": "Room A",
+        "catalog_status": "active",
+    })
+    client.post("/events", json={
+        "title": "Archived Event",
+        "duration": 1,
+        "min_primary_instructors": 1,
+        "min_secondary_instructors": 0,
+        "max_students": 10,
+        "location": "Room A",
+        "catalog_status": "archived",
+    })
+
+    r = client.get("/events?catalog_status=archived")
+    assert r.status_code == 200
+    results = r.json()
+    assert all(e["catalog_status"] == "archived" for e in results)
+    titles = [e["title"] for e in results]
+    assert "Archived Event" in titles
+    assert "Active Event" not in titles
+
+
+def test_list_events_filter_by_location(client):
+    client.post("/events", json={
+        "title": "Event at Room-X",
+        "duration": 1,
+        "min_primary_instructors": 1,
+        "min_secondary_instructors": 0,
+        "max_students": 10,
+        "location": "Room-X",
+    })
+    client.post("/events", json={
+        "title": "Event at Room-Y",
+        "duration": 1,
+        "min_primary_instructors": 1,
+        "min_secondary_instructors": 0,
+        "max_students": 10,
+        "location": "Room-Y",
+    })
+
+    r = client.get("/events?location=Room-X")
+    assert r.status_code == 200
+    results = r.json()
+    assert all(e["location"] == "Room-X" for e in results)
+    titles = [e["title"] for e in results]
+    assert "Event at Room-X" in titles
+    assert "Event at Room-Y" not in titles
+
+
+def test_import_events_append(client):
+    csv_content = (
+        "title,description,duration,min_primary_instructors,"
+        "min_secondary_instructors,max_students,location,catalog_status\n"
+        "Import A,,1,1,0,20,Room A,active\n"
+        "Import B,,2,1,1,30,Room B,active\n"
+    )
+    r = client.post(
+        "/events/import",
+        data={"mode": "append"},
+        files={"file": ("events.csv", io.BytesIO(csv_content.encode("utf-8")), "text/csv")},
+    )
+    assert r.status_code == 201
+    data = r.json()
+    assert len(data) == 2
+    titles = {e["title"] for e in data}
+    assert titles == {"Import A", "Import B"}
+
+
+def test_import_events_replace(client):
+    # Pre-create an event that should be wiped out
+    client.post("/events", json={
+        "title": "Should Be Deleted",
+        "duration": 1,
+        "min_primary_instructors": 1,
+        "min_secondary_instructors": 0,
+        "max_students": 10,
+        "location": "Old Room",
+    })
+
+    csv_content = (
+        "title,description,duration,min_primary_instructors,"
+        "min_secondary_instructors,max_students,location,catalog_status\n"
+        "Only This One,,1,1,0,15,New Room,active\n"
+    )
+    r = client.post(
+        "/events/import",
+        data={"mode": "replace"},
+        files={"file": ("events.csv", io.BytesIO(csv_content.encode("utf-8")), "text/csv")},
+    )
+    assert r.status_code == 201
+
+    list_r = client.get("/events")
+    assert list_r.status_code == 200
+    all_events = list_r.json()
+    assert len(all_events) == 1
+    assert all_events[0]["title"] == "Only This One"
+
+
+# ---------------------------------------------------------------------------
+# Event Dates — additional tests
+# ---------------------------------------------------------------------------
+
+def test_get_event_date_with_allocations(client):
+    event_r = client.post("/events", json={
+        "title": "Event for ED Alloc",
+        "duration": 1,
+        "min_primary_instructors": 1,
+        "min_secondary_instructors": 0,
+        "max_students": 20,
+        "location": "Room A",
+    })
+    event_id = event_r.json()["id"]
+
+    ed_r = client.post("/event-dates", json={
+        "event_id": event_id,
+        "date": "2026-06-01T00:00:00",
+        "start_time": "2026-06-01T09:00:00",
+        "end_time": "2026-06-01T17:00:00",
+    })
+    ed_id = ed_r.json()["id"]
+
+    inst_r = client.post("/instructors", json={
+        "name": "Frank Alloc",
+        "email": "frank_alloc@example.com",
+        "role": "primary",
+    })
+    inst_id = inst_r.json()["id"]
+
+    alloc_r = client.post("/allocations", json={
+        "event_date_id": ed_id,
+        "instructor_id": inst_id,
+        "shift_duration": 8,
+        "role": "primary",
+    })
+    assert alloc_r.status_code == 201
+
+    r = client.get(f"/event-dates/{ed_id}")
+    assert r.status_code == 200
+    data = r.json()
+    assert "allocations" in data
+    assert len(data["allocations"]) == 1
+    assert data["allocations"][0]["instructor_id"] == inst_id
+
+
+def test_update_event_date(client):
+    event_r = client.post("/events", json={
+        "title": "Event for ED Update",
+        "duration": 1,
+        "min_primary_instructors": 1,
+        "min_secondary_instructors": 0,
+        "max_students": 20,
+        "location": "Room B",
+    })
+    event_id = event_r.json()["id"]
+
+    ed_r = client.post("/event-dates", json={
+        "event_id": event_id,
+        "date": "2026-07-01T00:00:00",
+        "start_time": "2026-07-01T09:00:00",
+        "end_time": "2026-07-01T17:00:00",
+        "registered_students": 5,
+    })
+    ed_id = ed_r.json()["id"]
+
+    r = client.put(f"/event-dates/{ed_id}", json={"registered_students": 10})
+    assert r.status_code == 200
+    assert r.json()["registered_students"] == 10
+
+
+def test_list_event_dates_filter_by_event(client):
+    event1_r = client.post("/events", json={
+        "title": "Event One",
+        "duration": 1,
+        "min_primary_instructors": 1,
+        "min_secondary_instructors": 0,
+        "max_students": 10,
+        "location": "Room A",
+    })
+    event1_id = event1_r.json()["id"]
+
+    event2_r = client.post("/events", json={
+        "title": "Event Two",
+        "duration": 1,
+        "min_primary_instructors": 1,
+        "min_secondary_instructors": 0,
+        "max_students": 10,
+        "location": "Room B",
+    })
+    event2_id = event2_r.json()["id"]
+
+    client.post("/event-dates", json={
+        "event_id": event1_id,
+        "date": "2026-08-01T00:00:00",
+        "start_time": "2026-08-01T09:00:00",
+        "end_time": "2026-08-01T17:00:00",
+    })
+    client.post("/event-dates", json={
+        "event_id": event2_id,
+        "date": "2026-08-02T00:00:00",
+        "start_time": "2026-08-02T09:00:00",
+        "end_time": "2026-08-02T17:00:00",
+    })
+
+    r = client.get(f"/event-dates?event_id={event1_id}")
+    assert r.status_code == 200
+    results = r.json()
+    assert len(results) == 1
+    assert results[0]["event_id"] == event1_id
+
+
+# ---------------------------------------------------------------------------
+# Instructors — additional tests
+# ---------------------------------------------------------------------------
+
+def test_get_instructor(client):
+    inst_r = client.post("/instructors", json={
+        "name": "Grace Hopper",
+        "email": "grace@example.com",
+        "role": "lead",
+    })
+    assert inst_r.status_code == 201
+    inst_id = inst_r.json()["id"]
+
+    r = client.get(f"/instructors/{inst_id}")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["id"] == inst_id
+    assert data["name"] == "Grace Hopper"
+    assert "allocations" in data
+
+
+def test_get_instructor_not_found(client):
+    r = client.get("/instructors/999999")
+    assert r.status_code == 404
+
+
+def test_update_instructor(client):
+    inst_r = client.post("/instructors", json={
+        "name": "Old Name",
+        "email": "update_inst@example.com",
+        "role": "primary",
+    })
+    assert inst_r.status_code == 201
+    inst_id = inst_r.json()["id"]
+
+    r = client.put(f"/instructors/{inst_id}", json={"name": "New Name"})
+    assert r.status_code == 200
+    assert r.json()["name"] == "New Name"
+
+
+def test_add_availability(client):
+    inst_r = client.post("/instructors", json={
+        "name": "Henry Avail",
+        "email": "henry_avail@example.com",
+        "role": "secondary",
+    })
+    assert inst_r.status_code == 201
+    inst_id = inst_r.json()["id"]
+
+    r = client.post(f"/instructors/{inst_id}/availability", json={
+        "start_time": "2026-09-01T08:00:00",
+        "end_time": "2026-09-01T16:00:00",
+    })
+    assert r.status_code == 201
+    data = r.json()
+    assert data["instructor_id"] == inst_id
+    assert data["start_time"] == "2026-09-01T08:00:00"
+    assert data["end_time"] == "2026-09-01T16:00:00"
+
+
+def test_get_availability(client):
+    inst_r = client.post("/instructors", json={
+        "name": "Irene Available",
+        "email": "irene_avail@example.com",
+        "role": "primary",
+    })
+    assert inst_r.status_code == 201
+    inst_id = inst_r.json()["id"]
+
+    client.post(f"/instructors/{inst_id}/availability", json={
+        "start_time": "2026-10-01T08:00:00",
+        "end_time": "2026-10-01T12:00:00",
+    })
+    client.post(f"/instructors/{inst_id}/availability", json={
+        "start_time": "2026-10-02T08:00:00",
+        "end_time": "2026-10-02T12:00:00",
+    })
+
+    r = client.get(f"/instructors/{inst_id}/availability")
+    assert r.status_code == 200
+    results = r.json()
+    assert len(results) == 2
+    assert all(a["instructor_id"] == inst_id for a in results)
+
+
+# ---------------------------------------------------------------------------
+# Allocations — additional tests
+# ---------------------------------------------------------------------------
+
+def test_list_allocations_filter(client):
+    event_r = client.post("/events", json={
+        "title": "Alloc Filter Event",
+        "duration": 1,
+        "min_primary_instructors": 1,
+        "min_secondary_instructors": 0,
+        "max_students": 20,
+        "location": "Room A",
+    })
+    event_id = event_r.json()["id"]
+
+    ed1_r = client.post("/event-dates", json={
+        "event_id": event_id,
+        "date": "2026-11-01T00:00:00",
+        "start_time": "2026-11-01T09:00:00",
+        "end_time": "2026-11-01T17:00:00",
+    })
+    ed1_id = ed1_r.json()["id"]
+
+    ed2_r = client.post("/event-dates", json={
+        "event_id": event_id,
+        "date": "2026-11-02T00:00:00",
+        "start_time": "2026-11-02T09:00:00",
+        "end_time": "2026-11-02T17:00:00",
+    })
+    ed2_id = ed2_r.json()["id"]
+
+    inst1_r = client.post("/instructors", json={
+        "name": "Jack Filter",
+        "email": "jack_filter@example.com",
+        "role": "primary",
+    })
+    inst1_id = inst1_r.json()["id"]
+
+    inst2_r = client.post("/instructors", json={
+        "name": "Karen Filter",
+        "email": "karen_filter@example.com",
+        "role": "secondary",
+    })
+    inst2_id = inst2_r.json()["id"]
+
+    alloc1_r = client.post("/allocations", json={
+        "event_date_id": ed1_id,
+        "instructor_id": inst1_id,
+        "shift_duration": 8,
+        "role": "primary",
+    })
+    assert alloc1_r.status_code == 201
+
+    alloc2_r = client.post("/allocations", json={
+        "event_date_id": ed2_id,
+        "instructor_id": inst2_id,
+        "shift_duration": 8,
+        "role": "secondary",
+    })
+    assert alloc2_r.status_code == 201
+
+    r = client.get(f"/allocations?event_date_id={ed1_id}")
+    assert r.status_code == 200
+    results = r.json()
+    assert len(results) == 1
+    assert results[0]["event_date_id"] == ed1_id
+    assert results[0]["instructor_id"] == inst1_id
+
+
+def test_delete_allocation_not_found(client):
+    r = client.delete("/allocations/999999")
+    assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Reports — additional tests
+# ---------------------------------------------------------------------------
+
+def test_report_instructor_history(client):
+    event_r = client.post("/events", json={
+        "title": "History Event",
+        "duration": 1,
+        "min_primary_instructors": 1,
+        "min_secondary_instructors": 0,
+        "max_students": 20,
+        "location": "Room A",
+    })
+    event_id = event_r.json()["id"]
+
+    ed_r = client.post("/event-dates", json={
+        "event_id": event_id,
+        "date": "2026-12-01T00:00:00",
+        "start_time": "2026-12-01T09:00:00",
+        "end_time": "2026-12-01T17:00:00",
+    })
+    ed_id = ed_r.json()["id"]
+
+    inst_r = client.post("/instructors", json={
+        "name": "Leo History",
+        "email": "leo_history@example.com",
+        "role": "primary",
+    })
+    inst_id = inst_r.json()["id"]
+
+    alloc_r = client.post("/allocations", json={
+        "event_date_id": ed_id,
+        "instructor_id": inst_id,
+        "shift_duration": 8,
+        "role": "primary",
+    })
+    assert alloc_r.status_code == 201
+    alloc_id = alloc_r.json()["id"]
+
+    r = client.get(f"/reports/instructor-history?instructor_id={inst_id}")
+    assert r.status_code == 200
+    results = r.json()
+    assert len(results) >= 1
+    match = next((item for item in results if item["allocation_id"] == alloc_id), None)
+    assert match is not None
+    assert match["event_title"] == "History Event"
+    assert match["event_id"] == event_id
+
+
+def test_report_class_schedule(client):
+    event_r = client.post("/events", json={
+        "title": "Schedule Event",
+        "duration": 1,
+        "min_primary_instructors": 1,
+        "min_secondary_instructors": 0,
+        "max_students": 20,
+        "location": "Schedule Room",
+    })
+    event_id = event_r.json()["id"]
+
+    ed_r = client.post("/event-dates", json={
+        "event_id": event_id,
+        "date": "2026-12-15T00:00:00",
+        "start_time": "2026-12-15T09:00:00",
+        "end_time": "2026-12-15T17:00:00",
+    })
+    ed_id = ed_r.json()["id"]
+
+    r = client.get("/reports/class-schedule")
+    assert r.status_code == 200
+    results = r.json()
+    match = next((item for item in results if item["event_date_id"] == ed_id), None)
+    assert match is not None
+    assert match["event_title"] == "Schedule Event"
+    assert match["location"] == "Schedule Room"
