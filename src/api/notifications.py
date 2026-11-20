@@ -31,6 +31,21 @@ _SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 _FROM_EMAIL = os.getenv("NOTIFY_FROM_EMAIL", "noreply@instructor-system.local")
 
 
+def _send_ses(to: str, subject: str, body: str) -> None:
+    import boto3
+    endpoint_url = os.getenv("AWS_ENDPOINT_URL")
+    region = os.getenv("AWS_DEFAULT_REGION", os.getenv("AWS_REGION", "us-east-1"))
+    client = boto3.client("ses", region_name=region, endpoint_url=endpoint_url)
+    client.send_email(
+        Source=_FROM_EMAIL,
+        Destination={"ToAddresses": [to]},
+        Message={
+            "Subject": {"Data": subject},
+            "Body": {"Text": {"Data": body}},
+        },
+    )
+
+
 def _send_smtp(to: str, subject: str, body: str) -> None:
     msg = EmailMessage()
     msg["From"] = _FROM_EMAIL
@@ -50,7 +65,13 @@ def send_notification(to: str, subject: str, body: str) -> None:
     Call via a background thread from async endpoints so the HTTP
     response is not blocked.
     """
-    if _BACKEND == "smtp":
+    if _BACKEND == "ses":
+        try:
+            _send_ses(to, subject, body)
+            logger.info("Email sent via SES to %s: %s", to, subject)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Failed to send SES email to %s: %s", to, exc)
+    elif _BACKEND == "smtp":
         try:
             _send_smtp(to, subject, body)
             logger.info("Email sent to %s: %s", to, subject)

@@ -8,44 +8,57 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-COMPOSE_FILE="$PROJECT_ROOT/src/db/docker/docker-compose.yml"
 API_PID_FILE="$PROJECT_ROOT/.api.pid"
 FRONTEND_PID_FILE="$PROJECT_ROOT/.frontend.pid"
+
+EMULATOR_CONTAINER="aws-emulator"
+EMULATOR_PORT="9297"
+TF_DIR="$PROJECT_ROOT"
 
 function display_usage {
     echo -e "${YELLOW}Usage: $0 [command]${NC}"
     echo ""
+    echo -e "${BLUE}Emulator commands:${NC}"
+    echo -e "  ${GREEN}emulator:build${NC}   - Build the AWS emulator container image"
+    echo -e "  ${GREEN}emulator:start${NC}   - Start the AWS emulator container"
+    echo -e "  ${GREEN}emulator:stop${NC}    - Stop the AWS emulator container"
+    echo -e "  ${GREEN}emulator:status${NC}  - Show emulator container status"
+    echo -e "  ${GREEN}emulator:login${NC}   - Run aws login against the emulator"
+    echo ""
+    echo -e "${BLUE}Infrastructure commands:${NC}"
+    echo -e "  ${GREEN}infra:init${NC}       - Initialize Terraform"
+    echo -e "  ${GREEN}infra:up${NC}         - Apply Terraform (provision all AWS resources)"
+    echo -e "  ${GREEN}infra:down${NC}       - Destroy all Terraform-managed resources"
+    echo -e "  ${GREEN}infra:status${NC}     - Show current Terraform state"
+    echo -e "  ${GREEN}infra:output${NC}     - Show Terraform outputs"
+    echo ""
     echo -e "${BLUE}Database commands:${NC}"
-    echo -e "  ${GREEN}db:start${NC}    - Start the PostgreSQL container"
-    echo -e "  ${GREEN}db:stop${NC}     - Stop the PostgreSQL container"
-    echo -e "  ${GREEN}db:restart${NC}  - Restart the PostgreSQL container"
-    echo -e "  ${GREEN}db:status${NC}   - Check container status"
-    echo -e "  ${GREEN}db:logs${NC}     - Show container logs"
-    echo -e "  ${GREEN}db:psql${NC}     - Open psql shell"
-    echo -e "  ${GREEN}db:build${NC}    - Build the PostgreSQL container image"
-    echo -e "  ${GREEN}db:clean${NC}    - Remove container and volumes (destructive)"
-    echo -e "  ${GREEN}db:migrate${NC}  - Run Alembic migrations"
+    echo -e "  ${GREEN}db:init${NC}          - Create instructor_test_db on RDS"
+    echo -e "  ${GREEN}db:migrate${NC}       - Run Alembic migrations against RDS"
     echo ""
     echo -e "${BLUE}API commands:${NC}"
-    echo -e "  ${GREEN}api:start${NC}   - Start the FastAPI server (background)"
-    echo -e "  ${GREEN}api:stop${NC}    - Stop the FastAPI server"
-    echo -e "  ${GREEN}api:restart${NC} - Restart the FastAPI server"
-    echo -e "  ${GREEN}api:logs${NC}    - Tail API server log"
-    echo -e "  ${GREEN}api:test${NC}    - Run API pytest suite"
+    echo -e "  ${GREEN}api:build${NC}        - Build the API Docker image"
+    echo -e "  ${GREEN}api:push${NC}         - Push the API image to ECR"
+    echo -e "  ${GREEN}api:start${NC}        - Start the FastAPI server locally (background)"
+    echo -e "  ${GREEN}api:stop${NC}         - Stop the FastAPI server"
+    echo -e "  ${GREEN}api:restart${NC}      - Restart the FastAPI server"
+    echo -e "  ${GREEN}api:logs${NC}         - Tail API server log"
+    echo -e "  ${GREEN}api:test${NC}         - Run API pytest suite against RDS"
     echo ""
     echo -e "${BLUE}Frontend commands:${NC}"
-    echo -e "  ${GREEN}fe:start${NC}    - Start the frontend dev server (background)"
-    echo -e "  ${GREEN}fe:stop${NC}     - Stop the frontend dev server"
-    echo -e "  ${GREEN}fe:restart${NC}  - Restart the frontend dev server"
-    echo -e "  ${GREEN}fe:test${NC}     - Run frontend test suite"
-    echo -e "  ${GREEN}fe:build${NC}    - Build frontend for production"
+    echo -e "  ${GREEN}fe:start${NC}         - Start the frontend dev server (background)"
+    echo -e "  ${GREEN}fe:stop${NC}          - Stop the frontend dev server"
+    echo -e "  ${GREEN}fe:restart${NC}       - Restart the frontend dev server"
+    echo -e "  ${GREEN}fe:test${NC}          - Run frontend test suite"
+    echo -e "  ${GREEN}fe:build${NC}         - Build frontend for production"
+    echo -e "  ${GREEN}fe:deploy${NC}        - Build and deploy frontend to S3/CloudFront"
     echo ""
     echo -e "${BLUE}Stack commands:${NC}"
-    echo -e "  ${GREEN}start${NC}       - Start entire stack (db + api + frontend)"
-    echo -e "  ${GREEN}stop${NC}        - Stop entire stack"
-    echo -e "  ${GREEN}restart${NC}     - Restart entire stack"
-    echo -e "  ${GREEN}status${NC}      - Show status of all components"
-    echo -e "  ${GREEN}test${NC}        - Run all test suites"
+    echo -e "  ${GREEN}start${NC}            - Start entire stack (emulator + infra + db + api + frontend)"
+    echo -e "  ${GREEN}stop${NC}             - Stop entire stack"
+    echo -e "  ${GREEN}restart${NC}          - Restart entire stack"
+    echo -e "  ${GREEN}status${NC}           - Show status of all components"
+    echo -e "  ${GREEN}test${NC}             - Run all test suites"
 }
 
 # --- Prerequisite checks ---
@@ -55,70 +68,145 @@ if ! command -v podman &> /dev/null; then
     exit 1
 fi
 
+# --- Emulator functions ---
+
+function emulator_build {
+    echo -e "${YELLOW}Building AWS emulator container image...${NC}"
+    podman build -t aws-emulator "$PROJECT_ROOT"
+}
+
+function emulator_start {
+    mkdir -p "$HOME/.aws/emulator/$EMULATOR_PORT"
+    podman run -d --name "$EMULATOR_CONTAINER" \
+        -p "${EMULATOR_PORT}:${EMULATOR_PORT}" \
+        -v "$HOME/.aws/emulator/${EMULATOR_PORT}:/home/emulator/.aws" \
+        aws-emulator
+    echo "Waiting for emulator to be ready..."
+    sleep 5
+    echo "Source localENV then run: aws login"
+}
+
+function emulator_stop {
+    podman stop "$EMULATOR_CONTAINER" && podman rm "$EMULATOR_CONTAINER"
+}
+
+function emulator_status {
+    podman ps --filter "name=$EMULATOR_CONTAINER"
+}
+
+function emulator_login {
+    source "$PROJECT_ROOT/localENV" && aws login
+}
+
+# --- Infra functions ---
+
+function infra_init {
+    source "$PROJECT_ROOT/localENV"
+    cd "$TF_DIR"
+    terraform init
+}
+
+function infra_up {
+    source "$PROJECT_ROOT/localENV"
+    cd "$TF_DIR"
+    terraform apply -auto-approve \
+        -var="db_password=${TF_VAR_db_password:-instructor_pass_local}" \
+        -var="jwt_secret_key=${TF_VAR_jwt_secret_key:-change-me-in-production}"
+}
+
+function infra_down {
+    source "$PROJECT_ROOT/localENV"
+    cd "$TF_DIR"
+    terraform destroy -auto-approve
+}
+
+function infra_status {
+    source "$PROJECT_ROOT/localENV"
+    cd "$TF_DIR"
+    terraform show
+}
+
+function infra_output {
+    source "$PROJECT_ROOT/localENV"
+    cd "$TF_DIR"
+    terraform output
+}
+
+# --- DB URL helpers ---
+
+function get_rds_db_url {
+    source "$PROJECT_ROOT/localENV" 2>/dev/null
+    cd "$TF_DIR"
+    terraform output -raw database_url 2>/dev/null
+}
+
+function get_rds_test_url {
+    source "$PROJECT_ROOT/localENV" 2>/dev/null
+    cd "$TF_DIR"
+    terraform output -raw test_database_url 2>/dev/null
+}
+
 # --- DB functions ---
 
-function db_start {
-    echo -e "${YELLOW}Starting PostgreSQL container...${NC}"
-    podman-compose -f "$COMPOSE_FILE" up -d postgres
-    if [ $? -eq 0 ]; then
-        echo -e "${GREEN}PostgreSQL started.${NC}"
-    else
-        echo -e "${RED}Failed to start PostgreSQL.${NC}"; exit 1
-    fi
-}
-
-function db_stop {
-    echo -e "${YELLOW}Stopping PostgreSQL container...${NC}"
-    podman-compose -f "$COMPOSE_FILE" down
-    echo -e "${GREEN}PostgreSQL stopped.${NC}"
-}
-
-function db_restart {
-    db_stop
-    db_start
-}
-
-function db_status {
-    podman ps -a --filter "name=instructor_db"
-}
-
-function db_logs {
-    podman logs -f instructor_db
-}
-
-function db_psql {
-    podman exec -it instructor_db psql -U postgres -d instructor_db
-}
-
-function db_build {
-    echo -e "${YELLOW}Building PostgreSQL container image...${NC}"
-    podman-compose -f "$COMPOSE_FILE" build postgres
-}
-
-function db_clean {
-    echo -e "${RED}Removing PostgreSQL container and volumes...${NC}"
-    podman-compose -f "$COMPOSE_FILE" down -v
-    echo -e "${GREEN}Done.${NC}"
-}
-
 function db_migrate {
-    echo -e "${YELLOW}Running Alembic migrations...${NC}"
+    DB_URL=$(get_rds_db_url)
+    if [ -z "$DB_URL" ]; then
+        echo -e "${RED}Could not get DB URL from terraform output. Run infra:up first.${NC}"
+        exit 1
+    fi
+    echo -e "${YELLOW}Running Alembic migrations against RDS...${NC}"
     cd "$PROJECT_ROOT"
-    conda run -n instructor_assignments alembic -c src/db/alembic.ini upgrade head
+    conda run -n instructor_assignments \
+        env DATABASE_URL="$DB_URL" \
+        alembic -c src/db/alembic.ini upgrade head
+}
+
+function db_init {
+    source "$PROJECT_ROOT/localENV" 2>/dev/null
+    cd "$TF_DIR"
+    RDS_HOST=$(terraform output -raw rds_host 2>/dev/null)
+    RDS_PORT=$(terraform output -raw rds_port 2>/dev/null)
+    DB_PASS="${TF_VAR_db_password:-instructor_pass_local}"
+    echo -e "${YELLOW}Creating instructor_test_db on RDS...${NC}"
+    PGPASSWORD="$DB_PASS" psql -h "$RDS_HOST" -p "$RDS_PORT" -U postgres \
+        -c "CREATE DATABASE instructor_test_db;" 2>/dev/null || \
+        echo -e "${YELLOW}instructor_test_db may already exist.${NC}"
+    echo -e "${GREEN}Done.${NC}"
 }
 
 # --- API functions ---
 
 API_LOG="$PROJECT_ROOT/.api.log"
 
+function api_build {
+    echo -e "${YELLOW}Building API Docker image...${NC}"
+    podman build -f src/api/Dockerfile -t instructor-api:latest "$PROJECT_ROOT"
+}
+
+function api_push {
+    source "$PROJECT_ROOT/localENV"
+    cd "$TF_DIR"
+    ECR_URL=$(terraform output -raw ecr_repository_url 2>/dev/null)
+    if [ -z "$ECR_URL" ]; then
+        echo -e "${RED}ECR URL not found. Run infra:up first.${NC}"; exit 1
+    fi
+    echo -e "${YELLOW}Pushing API image to ECR...${NC}"
+    aws ecr get-login-password | podman login --username AWS --password-stdin "$ECR_URL"
+    podman tag instructor-api:latest "${ECR_URL}:latest"
+    podman push "${ECR_URL}:latest"
+}
+
 function api_start {
     if [ -f "$API_PID_FILE" ] && kill -0 "$(cat "$API_PID_FILE")" 2>/dev/null; then
         echo -e "${YELLOW}API server already running (PID $(cat "$API_PID_FILE")).${NC}"
         return
     fi
+    DB_URL=$(get_rds_db_url)
     echo -e "${YELLOW}Starting API server...${NC}"
     cd "$PROJECT_ROOT"
-    conda run -n instructor_assignments uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload \
+    conda run -n instructor_assignments \
+        env DATABASE_URL="${DB_URL}" \
+        uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload \
         > "$API_LOG" 2>&1 &
     echo $! > "$API_PID_FILE"
     echo -e "${GREEN}API server started (PID $(cat "$API_PID_FILE")). Log: $API_LOG${NC}"
@@ -152,9 +240,13 @@ function api_logs {
 }
 
 function api_test {
-    echo -e "${YELLOW}Running API tests...${NC}"
+    DB_URL=$(get_rds_db_url)
+    TEST_URL=$(get_rds_test_url)
+    echo -e "${YELLOW}Running API tests against RDS...${NC}"
     cd "$PROJECT_ROOT"
-    conda run -n instructor_assignments pytest src/api/tests/ -v
+    conda run -n instructor_assignments \
+        env DATABASE_URL="$DB_URL" TEST_DATABASE_URL="$TEST_URL" \
+        pytest src/api/tests/ -v
 }
 
 # --- Frontend functions ---
@@ -204,6 +296,26 @@ function fe_build {
     npm run build
 }
 
+function fe_deploy {
+    source "$PROJECT_ROOT/localENV"
+    cd "$TF_DIR"
+    BUCKET=$(terraform output -raw frontend_bucket 2>/dev/null)
+    CF_ID=$(terraform output -raw cloudfront_distribution_id 2>/dev/null)
+    if [ -z "$BUCKET" ]; then
+        echo -e "${RED}Frontend bucket not found. Run infra:up first.${NC}"; exit 1
+    fi
+    echo -e "${YELLOW}Building frontend...${NC}"
+    cd "$PROJECT_ROOT/src/frontend"
+    npm run build
+    echo -e "${YELLOW}Syncing to S3...${NC}"
+    aws s3 sync dist/ "s3://$BUCKET/" --delete
+    if [ -n "$CF_ID" ]; then
+        echo -e "${YELLOW}Invalidating CloudFront cache...${NC}"
+        aws cloudfront create-invalidation --distribution-id "$CF_ID" --paths "/*"
+    fi
+    echo -e "${GREEN}Frontend deployed.${NC}"
+}
+
 # --- DB tests ---
 
 function db_test {
@@ -215,8 +327,11 @@ function db_test {
 # --- Stack functions ---
 
 function stack_start {
-    db_start
-    sleep 2
+    emulator_start
+    sleep 5
+    infra_up
+    db_init
+    db_migrate
     api_start
     fe_start
 }
@@ -224,7 +339,8 @@ function stack_start {
 function stack_stop {
     fe_stop
     api_stop
-    db_stop
+    infra_down
+    emulator_stop
 }
 
 function stack_restart {
@@ -233,8 +349,11 @@ function stack_restart {
 }
 
 function stack_status {
-    echo -e "${BLUE}=== PostgreSQL ===${NC}"
-    db_status
+    echo -e "${BLUE}=== AWS Emulator ===${NC}"
+    emulator_status
+    echo ""
+    echo -e "${BLUE}=== Infrastructure ===${NC}"
+    infra_output
     echo ""
     echo -e "${BLUE}=== API Server ===${NC}"
     if [ -f "$API_PID_FILE" ] && kill -0 "$(cat "$API_PID_FILE")" 2>/dev/null; then
@@ -265,18 +384,25 @@ if [ $# -eq 0 ]; then
 fi
 
 case "$1" in
+    # Emulator
+    emulator:build)  emulator_build ;;
+    emulator:start)  emulator_start ;;
+    emulator:stop)   emulator_stop ;;
+    emulator:status) emulator_status ;;
+    emulator:login)  emulator_login ;;
+    # Infra
+    infra:init)   infra_init ;;
+    infra:up)     infra_up ;;
+    infra:down)   infra_down ;;
+    infra:status) infra_status ;;
+    infra:output) infra_output ;;
     # DB
-    db:start)   db_start ;;
-    db:stop)    db_stop ;;
-    db:restart) db_restart ;;
-    db:status)  db_status ;;
-    db:logs)    db_logs ;;
-    db:psql)    db_psql ;;
-    db:build)   db_build ;;
-    db:clean)   db_clean ;;
+    db:init)    db_init ;;
     db:migrate) db_migrate ;;
     db:test)    db_test ;;
     # API
+    api:build)   api_build ;;
+    api:push)    api_push ;;
     api:start)   api_start ;;
     api:stop)    api_stop ;;
     api:restart) api_restart ;;
@@ -288,6 +414,7 @@ case "$1" in
     fe:restart) fe_restart ;;
     fe:test)    fe_test ;;
     fe:build)   fe_build ;;
+    fe:deploy)  fe_deploy ;;
     # Stack
     start)   stack_start ;;
     stop)    stack_stop ;;
