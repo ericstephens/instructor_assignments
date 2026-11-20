@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log
+.api.log
+.frontend.log
+
+# PID files
+*.pid
+
+# Terraform / OpenTofu state (contains sensitive data)
+terraform.tfstate
+terraform.tfstate.backup
+*.tfstate
+*.tfstate.*
+.terraform/
+# Keep the lock file — it pins provider versions
+!.terraform.lock.hcl
+
+# Node
+node_modules/
+src/frontend/dist/
+src/frontend/.vite/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Claude
+.claude/settings.json
+.claude/settings.local.json
