@@ -3,6 +3,7 @@ EventDates router — CRUD + staffing status.
 """
 from __future__ import annotations
 
+import threading
 from datetime import datetime
 from typing import List, Optional
 
@@ -10,8 +11,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from src.db.config import get_db
-from src.db.models import Allocation, Event, EventDate, RoleEnum, User
+from src.db.models import Allocation, Event, EventDate, Instructor, RoleEnum, User
 from ..auth import get_current_user, require_admin
+from ..notifications import notify_event_date_cancelled
 from ..schemas import (
     EventDateCreate,
     EventDateResponse,
@@ -86,11 +88,28 @@ def cancel_event_date(event_date_id: int, db: Session = Depends(get_db), _: User
     if ed.is_cancelled:
         raise HTTPException(status_code=409, detail="EventDate is already cancelled")
 
+    # Capture allocated instructors before deletion for notifications
+    allocations = db.query(Allocation).filter(Allocation.event_date_id == event_date_id).all()
+    event = db.query(Event).filter(Event.id == ed.event_id).first()
+    notif_targets = []
+    for a in allocations:
+        instr = db.query(Instructor).filter(Instructor.id == a.instructor_id).first()
+        if instr and event:
+            notif_targets.append((instr.email, instr.name, event.title, str(ed.date)))
+
     # Free all allocations so instructors are unblocked
     db.query(Allocation).filter(Allocation.event_date_id == event_date_id).delete()
     ed.is_cancelled = True
     db.commit()
     db.refresh(ed)
+
+    for email, name, title, date_str in notif_targets:
+        threading.Thread(
+            target=notify_event_date_cancelled,
+            args=(email, name, title, date_str),
+            daemon=True,
+        ).start()
+
     return ed
 
 

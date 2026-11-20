@@ -9,14 +9,16 @@ Business rules enforced here:
 """
 from __future__ import annotations
 
+import threading
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from src.db.config import get_db
-from src.db.models import Allocation, EventDate, RoleEnum, User
+from src.db.models import Allocation, EventDate, Instructor, RoleEnum, User
 from ..auth import get_current_user
+from ..notifications import notify_allocation_created, notify_allocation_removed
 from ..schemas import AllocationCreate, AllocationResponse
 
 router = APIRouter(prefix="/allocations", tags=["allocations"])
@@ -107,6 +109,23 @@ def create_allocation(
     db.add(alloc)
     db.commit()
     db.refresh(alloc)
+
+    # Fire-and-forget notification (non-blocking)
+    instructor = db.query(Instructor).filter(Instructor.id == alloc.instructor_id).first()
+    event_date = db.query(EventDate).filter(EventDate.id == alloc.event_date_id).first()
+    if instructor and event_date and event_date.event:
+        threading.Thread(
+            target=notify_allocation_created,
+            args=(
+                instructor.email,
+                instructor.name,
+                event_date.event.title,
+                str(event_date.date),
+                alloc.role.value,
+            ),
+            daemon=True,
+        ).start()
+
     return alloc
 
 
@@ -119,5 +138,22 @@ def delete_allocation(
     alloc = db.query(Allocation).filter(Allocation.id == allocation_id).first()
     if not alloc:
         raise HTTPException(status_code=404, detail="Allocation not found")
+
+    # Capture before delete for notification
+    instructor = db.query(Instructor).filter(Instructor.id == alloc.instructor_id).first()
+    event_date = db.query(EventDate).filter(EventDate.id == alloc.event_date_id).first()
+
     db.delete(alloc)
     db.commit()
+
+    if instructor and event_date and event_date.event:
+        threading.Thread(
+            target=notify_allocation_removed,
+            args=(
+                instructor.email,
+                instructor.name,
+                event_date.event.title,
+                str(event_date.date),
+            ),
+            daemon=True,
+        ).start()
