@@ -14,14 +14,17 @@ output "rds_endpoint" {
 }
 
 output "database_url" {
-  description = "SQLAlchemy connection URL for the main database"
-  value       = "postgresql+psycopg2://${var.db_username}:${var.db_password}@${aws_db_instance.postgres.endpoint}/instructor_db"
+  # The AWS emulator provides RDS API emulation only — it does not expose a
+  # real PostgreSQL wire endpoint. Actual connections use the postgres:16
+  # sidecar container on 127.0.0.1:5433 (managed by manage.sh emulator:start).
+  description = "SQLAlchemy connection URL for the main database (postgres sidecar)"
+  value       = "postgresql+psycopg2://${var.db_username}:${var.db_password}@127.0.0.1:5433/instructor_db"
   sensitive   = true
 }
 
 output "test_database_url" {
-  description = "SQLAlchemy connection URL for the test database"
-  value       = "postgresql+psycopg2://${var.db_username}:${var.db_password}@${aws_db_instance.postgres.endpoint}/instructor_test_db"
+  description = "SQLAlchemy connection URL for the test database (postgres sidecar)"
+  value       = "postgresql+psycopg2://${var.db_username}:${var.db_password}@127.0.0.1:5433/instructor_test_db"
   sensitive   = true
 }
 

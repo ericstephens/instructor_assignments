@@ -1,0 +1,6 @@
+PORT=9297
+podman run --rm --memory=2g --memory-swap=2g \
+  -p 127.0.0.1:$PORT:$PORT \
+  -p 127.0.0.1:35000-50000:35000-50000 \
+  -e HOME="$HOME" -v "$HOME/.aws/emulator:$HOME/.aws/emulator" \
+  aws-emulator -p $PORT

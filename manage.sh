@@ -15,6 +15,13 @@ EMULATOR_CONTAINER="aws-emulator"
 EMULATOR_PORT="9297"
 TF_DIR="$PROJECT_ROOT"
 
+# Postgres sidecar — the AWS emulator provides RDS API emulation only (no real
+# PostgreSQL wire endpoint). A postgres:16 container acts as the data layer.
+# Port 5432 is taken by podman's gvproxy on macOS, so we use 5433.
+PG_CONTAINER="instructor_postgres"
+PG_PORT="5433"
+PG_IMAGE="docker.io/library/postgres:16"
+
 function display_usage {
     echo -e "${YELLOW}Usage: $0 [command]${NC}"
     echo ""
@@ -76,18 +83,39 @@ function emulator_build {
 }
 
 function emulator_start {
-    mkdir -p "$HOME/.aws/emulator/$EMULATOR_PORT"
+    # Postgres sidecar (real PostgreSQL — emulator RDS is API-only)
+    echo -e "${YELLOW}Starting postgres sidecar on port ${PG_PORT}...${NC}"
+    podman rm -f "$PG_CONTAINER" 2>/dev/null || true
+    local pg_pass="${TF_VAR_db_password:-instructor_pass_local}"
+    podman run -d --name "$PG_CONTAINER" \
+        -e POSTGRES_USER=postgres \
+        -e POSTGRES_PASSWORD="$pg_pass" \
+        -e POSTGRES_DB=instructor_db \
+        -p "127.0.0.1:${PG_PORT}:5432" \
+        "$PG_IMAGE"
+
+    # AWS emulator
+    echo -e "${YELLOW}Starting AWS emulator on port ${EMULATOR_PORT}...${NC}"
+    podman rm -f "$EMULATOR_CONTAINER" 2>/dev/null || true
+    mkdir -p "$HOME/.aws/emulator"
     podman run -d --name "$EMULATOR_CONTAINER" \
-        -p "${EMULATOR_PORT}:${EMULATOR_PORT}" \
-        -v "$HOME/.aws/emulator/${EMULATOR_PORT}:/home/emulator/.aws" \
-        aws-emulator
-    echo "Waiting for emulator to be ready..."
+        --memory=2g --memory-swap=2g \
+        -p "127.0.0.1:${EMULATOR_PORT}:${EMULATOR_PORT}" \
+        -e HOME="$HOME" \
+        -v "$HOME/.aws/emulator:$HOME/.aws/emulator" \
+        aws-emulator -p "${EMULATOR_PORT}"
+
+    echo -e "${YELLOW}Waiting for services to be ready...${NC}"
     sleep 5
-    echo "Source localENV then run: aws login"
+    echo -e "${GREEN}Emulator ready. Source localENV, then run: aws login${NC}"
 }
 
 function emulator_stop {
-    podman stop "$EMULATOR_CONTAINER" && podman rm "$EMULATOR_CONTAINER"
+    echo -e "${YELLOW}Stopping AWS emulator...${NC}"
+    podman stop "$EMULATOR_CONTAINER" 2>/dev/null; podman rm "$EMULATOR_CONTAINER" 2>/dev/null || true
+    echo -e "${YELLOW}Stopping postgres sidecar...${NC}"
+    podman stop "$PG_CONTAINER" 2>/dev/null; podman rm "$PG_CONTAINER" 2>/dev/null || true
+    echo -e "${GREEN}All containers stopped.${NC}"
 }
 
 function emulator_status {
@@ -135,42 +163,49 @@ function infra_output {
 # --- DB URL helpers ---
 
 function get_rds_db_url {
-    source "$PROJECT_ROOT/localENV" 2>/dev/null
-    cd "$TF_DIR"
-    tofu output -raw database_url 2>/dev/null
+    local pg_pass="${TF_VAR_db_password:-instructor_pass_local}"
+    echo "postgresql+psycopg2://postgres:${pg_pass}@127.0.0.1:${PG_PORT}/instructor_db"
 }
 
 function get_rds_test_url {
-    source "$PROJECT_ROOT/localENV" 2>/dev/null
-    cd "$TF_DIR"
-    tofu output -raw test_database_url 2>/dev/null
+    local pg_pass="${TF_VAR_db_password:-instructor_pass_local}"
+    echo "postgresql+psycopg2://postgres:${pg_pass}@127.0.0.1:${PG_PORT}/instructor_test_db"
 }
 
 # --- DB functions ---
 
 function db_migrate {
-    DB_URL=$(get_rds_db_url)
-    if [ -z "$DB_URL" ]; then
-        echo -e "${RED}Could not get DB URL from tofu output. Run infra:up first.${NC}"
-        exit 1
-    fi
-    echo -e "${YELLOW}Running Alembic migrations against RDS...${NC}"
+    local db_url
+    db_url="$(get_rds_db_url)"
+    echo -e "${YELLOW}Running Alembic migrations against postgres sidecar...${NC}"
     cd "$PROJECT_ROOT"
     conda run -n instructor_assignments \
-        env DATABASE_URL="$DB_URL" \
+        env DATABASE_URL="$db_url" \
         alembic -c src/db/alembic.ini upgrade head
 }
 
 function db_init {
-    source "$PROJECT_ROOT/localENV" 2>/dev/null
-    cd "$TF_DIR"
-    RDS_HOST=$(tofu output -raw rds_host 2>/dev/null)
-    RDS_PORT=$(tofu output -raw rds_port 2>/dev/null)
-    DB_PASS="${TF_VAR_db_password:-instructor_pass_local}"
-    echo -e "${YELLOW}Creating instructor_test_db on RDS...${NC}"
-    PGPASSWORD="$DB_PASS" psql -h "$RDS_HOST" -p "$RDS_PORT" -U postgres \
-        -c "CREATE DATABASE instructor_test_db;" 2>/dev/null || \
-        echo -e "${YELLOW}instructor_test_db may already exist.${NC}"
+    local base_url
+    base_url="$(get_rds_db_url)"
+    base_url="${base_url/instructor_db/postgres}"
+    echo -e "${YELLOW}Creating instructor_test_db on postgres sidecar...${NC}"
+    conda run -n instructor_assignments python -c "
+import sqlalchemy, time
+for attempt in range(10):
+    try:
+        engine = sqlalchemy.create_engine('${base_url}', isolation_level='AUTOCOMMIT')
+        with engine.connect() as c:
+            try:
+                c.execute(sqlalchemy.text('CREATE DATABASE instructor_test_db'))
+                print('Created instructor_test_db')
+            except Exception as e:
+                print('instructor_test_db already exists' if 'already exists' in str(e) else f'Error: {e}')
+        engine.dispose()
+        break
+    except Exception:
+        print(f'Waiting for postgres... (attempt {attempt+1})')
+        time.sleep(2)
+" 2>&1
     echo -e "${GREEN}Done.${NC}"
 }
 
