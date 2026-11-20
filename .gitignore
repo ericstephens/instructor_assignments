@@ -47,6 +47,5 @@ src/frontend/.vite/
 .vscode/
 .idea/
 
-# Claude
-.claude/settings.json
+# Claude — keep settings.json (project permissions), ignore local overrides
 .claude/settings.local.json
