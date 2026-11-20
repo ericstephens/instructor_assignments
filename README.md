@@ -216,6 +216,119 @@ Defaults live in `localENV` and `src/api/requirements.txt`. Override via `TF_VAR
 
 ---
 
+## Architectural decisions
+
+### API framework — FastAPI
+**Chosen:** FastAPI  
+**Why:** Native async support, automatic OpenAPI/Swagger docs, first-class Pydantic v2 integration, and dependency injection (used for auth and DB session injection in every route). Performance is significantly better than synchronous frameworks under load.  
+**Alternatives:**
+- **Flask** — simpler but no async, no built-in validation; would require Marshmallow or similar
+- **Django REST Framework** — batteries-included but heavy; ORM coupling makes it awkward alongside SQLAlchemy
+- **Litestar** — comparable feature set to FastAPI; less ecosystem adoption at the time of writing
+
+---
+
+### ORM + migrations — SQLAlchemy 2.x + Alembic
+**Chosen:** SQLAlchemy Core/ORM with Alembic  
+**Why:** SQLAlchemy 2.x gives full control over queries while remaining database-agnostic. Alembic generates versioned, reviewable migration scripts that map 1:1 to schema changes. The two are designed to work together.  
+**Alternatives:**
+- **Django ORM** — tightly coupled to Django; not usable standalone without significant friction
+- **Tortoise ORM** — async-native, but smaller ecosystem and less tooling for migrations
+- **Prisma (Python)** — schema-first approach; still maturing in the Python ecosystem
+
+---
+
+### Auth — JWT (stateless) + bcrypt
+**Chosen:** `python-jose` for JWT, `passlib[bcrypt]` for password hashing  
+**Why:** JWTs are stateless — no session store needed, tokens carry role claims, and they work naturally with SPAs that store tokens in memory. bcrypt is the industry standard for password hashing: intentionally slow, well-audited, and widely supported.  
+**Note:** bcrypt pinned to `<4.0.0` — passlib 1.7.4 is incompatible with bcrypt 4.x API changes.  
+**Alternatives:**
+- **OAuth 2.0 / OIDC (Auth0, Cognito)** — appropriate for production SSO but adds external service dependency; overkill for a closed-user-base system
+- **Session cookies** — simpler for server-rendered apps; poor fit for SPA + API separation
+- **argon2** — newer and stronger than bcrypt; passlib supports it, but bcrypt remains the more common choice
+
+---
+
+### Compute — ECS Fargate
+**Chosen:** ECS Fargate  
+**Why:** Serverless containers — no EC2 instances to patch or size, IAM roles attach directly to task definitions, and scaling is handled by the ECS service scheduler. The container boundary keeps dev/prod parity tight (same image runs locally and in AWS).  
+**Alternatives:**
+- **EC2 (ECS or standalone)** — full control over instance type/OS; operational overhead of patching and right-sizing; appropriate when GPU or specific hardware is needed
+- **AWS Lambda** — sub-second billing and zero idle cost; cold starts and 15-minute timeout make it a poor fit for a long-lived FastAPI server with DB connection pooling
+- **App Runner** — simpler than Fargate (no VPC, ALB, or task definitions); less control over networking and scaling policies
+- **Kubernetes (EKS)** — production-grade orchestration; significant operational complexity for a single-service deployment
+
+---
+
+### Frontend hosting — S3 + CloudFront
+**Chosen:** S3 static website + CloudFront CDN  
+**Why:** A React/Vite build produces pure static assets — no server-side rendering needed. S3+CloudFront is the lowest-cost, highest-durability option: global edge caching, automatic HTTPS, and zero compute to manage.  
+**Alternatives:**
+- **Amplify Hosting** — managed CI/CD + hosting in one; less control, vendor lock-in on the build pipeline
+- **EC2 / Nginx** — unnecessary compute cost and operational overhead for static files
+- **Vercel / Netlify** — excellent DX but outside the AWS ecosystem; incompatible with the emulator-based local workflow
+
+---
+
+### Container registry — ECR
+**Chosen:** Amazon ECR  
+**Why:** Native IAM integration — ECS task execution roles pull images without managing Docker Hub credentials. Image scanning, lifecycle policies, and no egress charges within the same AWS region.  
+**Alternatives:**
+- **Docker Hub** — wider tooling support; requires credential management; rate-limited on free tier
+- **GitHub Container Registry** — good for open-source projects; adds a cross-cloud dependency
+
+---
+
+### Load balancer — ALB
+**Chosen:** Application Load Balancer  
+**Why:** Layer 7 HTTP/HTTPS routing, path-based rules, native integration with ECS Fargate (IP-based target groups), and health checks. Required for the ECS service to register and deregister tasks automatically.  
+**Alternatives:**
+- **API Gateway (HTTP API)** — better fit for Lambda; adds request/response transformation overhead not needed here
+- **NLB (Network Load Balancer)** — Layer 4; lower latency but no HTTP-level features (host/path routing, health check response codes)
+- **Direct container exposure** — no load balancer; works for dev, loses HA and zero-downtime deploys
+
+---
+
+### Database — RDS PostgreSQL
+**Chosen:** RDS PostgreSQL 16  
+**Why:** The data model is inherently relational (events → event_dates → allocations with FK constraints and uniqueness rules). PostgreSQL's `UniqueConstraint` enforces double-booking prevention at the DB level, and SQLAlchemy's ORM maps cleanly to it.  
+**Alternatives:**
+- **Aurora PostgreSQL** — wire-compatible with PostgreSQL; higher cost; better fit for high-availability multi-region deployments
+- **DynamoDB** — no joins, no transactions across items; would require significant denormalization for the allocation model
+- **SQLite** — zero-config for local dev; not production-grade; abandoned early in favour of real PostgreSQL for all environments (see testing decision below)
+
+---
+
+### Infrastructure as code — OpenTofu
+**Chosen:** OpenTofu (`tofu`)  
+**Why:** Drop-in open-source fork of Terraform under the Linux Foundation. Full HCL compatibility with the HashiCorp AWS provider; avoids the BSL licensing concerns introduced in Terraform 1.6+.  
+**Alternatives:**
+- **Terraform** — identical HCL syntax; BSL license restricts competitive use cases
+- **AWS CDK** — TypeScript/Python-native; better for teams already in those languages; generates CloudFormation, which adds an abstraction layer
+- **Pulumi** — general-purpose IaC in real programming languages; steeper learning curve; not yet as mature an ecosystem as HCL for AWS
+
+---
+
+### Notification backend — pluggable (log / SMTP / SES)
+**Chosen:** Strategy-pattern backend selected via `NOTIFY_BACKEND` env var  
+**Why:** Keeps the test suite fast and self-contained (`log` backend writes to the Python logger, captured by `caplog`). Switching to `ses` in production requires only an env var change — no code path changes.  
+**Alternatives:**
+- **Hardcoded SES** — simpler but forces SES credentials in every environment including CI
+- **Celery + Redis task queue** — appropriate for high-volume/retry-heavy email; unnecessary complexity for the current scale
+- **Firebase Cloud Messaging** — suitable for push notifications to mobile; not applicable here
+
+---
+
+### Test isolation — real PostgreSQL, per-function rollback
+**Chosen:** Real `postgres:16` for all test environments; connection-level transaction rolled back after each test  
+**Why:** Mocked databases let subtle bugs through — a migration or constraint that works in SQLite may fail in PostgreSQL. The rollback-per-test pattern gives full isolation without the cost of recreating the schema for every test function.  
+**Alternatives:**
+- **SQLite in-memory** — fast to spin up; silently ignores constraints PostgreSQL enforces; rejected after prior incidents
+- **Separate DB per test** — perfect isolation; prohibitively slow for 77 tests
+- **Testcontainers** — spins up a real Docker PostgreSQL per test run; equivalent outcome, more complex setup
+
+---
+
 ## Project structure
 
 ```
